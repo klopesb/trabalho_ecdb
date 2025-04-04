@@ -58,19 +58,43 @@ dim(rna_counts)
 dim(metadata)
 
 #check if there are NA values
-colSums(is.na(rna_counts))
+colSums(is.na(rna_counts)) #no NA
 
 colSums(is.na(metadata)) 
 
-#There are NA values in metadata, we need to verify how we can handle it 
+#Considering there are NA values in our metadata, we are going to verify it's proportion 
+metadata_na_percent <- colSums(is.na(metadata)) / nrow(metadata) * 100
+metadata_na_percent
 
-#remove rows where all values are null
-rna_counts <- rna_counts[rowSums(is.na(rna_counts)) < ncol(rna_counts), ]   
-metadata <- metadata[rowSums(is.na(metadata)) < ncol(metadata), ] 
-#check if the data type are correct 
+#remove columns with > 10% of NAs
+
+metadata_clean <- metadata[, colMeans(is.na(metadata)) <= 0.1] #from 84, now we have 47 cols 
+
+#check if rna_counts and metadata are corresponding 
+all(colnames(rna_normalized) %in% rownames(metadata_clean))
+
+#normalize data
+
+#apply log to estabilize gene variation
+#rna_counts_log <- log2(rna_counts + 1)  # +1 para evitar log(0)
+
+rna_filtered <- rna_counts[apply(rna_counts,1 , sd) > 0, ] #remove lines where expression in is 0
+rna_normalized <- t(scale(t(rna_filtered))) #this way we don't produce NaNs 
+colSums(is.na(rna_normalized))
+
+
+#data standardization - applied z-score to each row(gene)
+#summary(rna_counts_scaled)
+apply(rna_normalized, 1, mean)  # Média de cada gene (deve ser ~0)
+apply(rna_normalized, 1, sd)    # Desvio padrão de cada gene (deve ser ~1)
+
+
+#check if the data type is correct 
 str(rna_counts)
 str(metadata)
 
-#Summarize data 
+#Exploratory Analysis
+
+  
 
 
