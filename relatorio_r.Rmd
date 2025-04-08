@@ -1,0 +1,323 @@
+---
+title: "RNA-Seq_analysis_UCEC"
+author: "Karolina Barbosa"
+date: "2025-04-07"
+output: html_document
+---
+
+# 1ª Parte
+
+A primeira fase do trabalho deve incluir:
+
+-   Explicação dos dados, sua origem e relevância;
+
+-   Tarefas de preparação e de pré-processamento dos dados;
+
+-   Sumarização dos dados (estatística descritiva, exploração com recurso a gráficos;
+
+-   Análise estatística univariada;
+
+-   Análise de expressão diferencial e de enriquecimento.
+
+## Instalação e importação dos packages
+
+Foram instalados os packages utilizados no trabalho:
+
+```{r}
+install.packages(c("data.table", "tidyverse", "Bioconductor", "TCGAbiolinks", "edgeR", "DESeq2"))
+
+library(data.table)
+library(tidyverse)
+library(TCGAbiolinks)  # For TCGA data
+library(SummarizedExperiment)
+library(ggplot2)
+library(DESeq2)
+library(graphics)
+library(edgeR)
+```
+
+## Introdução
+
+### Explicação dos dados, origem e relevância
+
+## Objetivo
+
+## Extração dos metadados e dos dados transcriptômicos a partir da base de dados
+
+```{r}
+if (file.exists("rna_data_TCGA_UCEC.rds")) {
+  rna_data <- readRDS("rna_data_TCGA_UCEC.rds")
+} else {
+  query <- GDCquery(
+    project = "TCGA-UCEC",
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification",
+    workflow.type = "STAR - Counts"
+  )
+  
+  GDCdownload(query)
+  rna_data <- GDCprepare(query)
+  saveRDS(rna_data, file = "rna_data_TCGA_UCEC.rds")
+}
+```
+
+## Preparação e Pré-processamento dos dados
+
+```{r}
+rna_counts <- as.data.frame(assay(rna_data))
+metadata <- as.data.frame(colData(rna_data)) 
+
+
+#check black spaces, inconsistencies, odd characters 
+colnames(rna_counts) 
+rownames(rna_counts)
+colnames(metadata)
+
+#check if the number of genes/assays are correct (genes x assays)
+dim(rna_counts)
+
+#check if there are essential columns missing on our metadata 
+dim(metadata)
+
+#check if there are NA values
+colSums(is.na(rna_counts)) #no NA
+
+colSums(is.na(metadata)) 
+
+```
+
+### Metadados
+
+```{r}
+#Considering there are NA values in our metadata, we are going to verify it's proportion 
+metadata_na_percent <- colSums(is.na(metadata)) / nrow(metadata) * 100
+metadata_na_percent
+```
+
+```{r}
+metadata_clean <- metadata[, colMeans(is.na(metadata)) <= 0.1]
+```
+
+### RNA
+
+```{r}
+rna_filtered <- rna_counts[apply(rna_counts,1 , sd) > 0, ] #remove lines where expression in is 0
+
+
+#data standardization - applied z-score to each row(gene)
+rna_normalized <- t(scale(t(rna_filtered))) #this way we don't produce NaNs 
+colSums(is.na(rna_normalized))
+
+apply(rna_normalized, 1, mean)  # Média de cada gene (deve ser ~0)
+apply(rna_normalized, 1, sd)    # Desvio padrão de cada gene (deve ser ~1)
+
+```
+
+## Análise Descritiva e Exploratória
+
+```{r}
+table(colData(rna_data)$tissue_type)
+table(colData(rna_data)$classification_of_tumor)
+table(colData(rna_data)$primary_diagnosis)
+table(colData(rna_data)$vital_status)
+```
+
+Nova tabela de metadados só com as variáveis escolhidas
+
+| Variável                | Tipo       | Descrição         |
+|-------------------------|------------|-------------------|
+| vital_status            | Categórica | Vivos vs mortos   |
+| age_at_index            | Numérica   | Idade do paciente |
+| classification_of_tumor | Categórica | Tipo de tumor     |
+| tissue_type             | Categórica | Normal vs Tumoral |
+| primary_diagnosis       | Categórica | Subtipo de cancro |
+
+```{r}
+metadata_subset <- dplyr::select(
+  metadata_clean,
+  vital_status,
+  age_at_index,
+  classification_of_tumor,
+  tissue_type,
+  primary_diagnosis
+)
+```
+
+### Análise descritiva das variáveis categóricas
+
+### Vital_Status
+
+```{r}
+table(metadata_subset$vital_status)
+prop.table(table(metadata_subset$vital_status)) * 100
+```
+
+```{r}
+#Gráficos de barra 
+# Exemplo: vital_status
+ggplot(metadata_subset[!is.na(metadata_subset$vital_status), ], aes(x = vital_status)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Vital Status", x = "", y = "Frequência") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Classification of Tumor
+
+```{r}
+tumor_class <- metadata_subset %>%
+  mutate(classification_of_tumor = ifelse(classification_of_tumor == "primary", "primary", "others"))
+```
+
+```{r}
+table(tumor_class$classification_of_tumor)
+prop.table(table(tumor_class$classification_of_tumor)) * 100
+```
+
+```{r}
+#gráfico de barra 
+ggplot(tumor_class[!is.na(tumor_class$classification_of_tumor), ], aes(x = classification_of_tumor)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Classification of Tumor", x = "", y = "Frequência") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Tissue_type
+
+```{r}
+table(metadata_subset$tissue_type)
+prop.table(table(metadata_subset$tissue_type)) * 100
+```
+
+```{r}
+ggplot(metadata_subset, aes(x = tissue_type)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Tissue Type", x = "", y = "Frequência") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### Primary_diagnosis
+
+```{r}
+table(metadata_subset$primary_diagnosis)
+prop.table(table(metadata_subset$primary_diagnosis)) * 100
+```
+
+```{r}
+diagnosis_filtered <- metadata_subset %>%
+  mutate(primary_diagnosis = ifelse(
+    primary_diagnosis %in% c("Endometrioid adenocarcinoma, NOS", "Serous cystadenocarcinoma, NOS"),
+    primary_diagnosis,
+    "Others"
+  ))
+```
+
+```{r}
+ggplot(diagnosis_filtered, aes(x = primary_diagnosis)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Primary Diagnosis", x = "", y = "Frequência") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+###Análise descritiva da variável numérica \### Age_at_Index
+
+```{r}
+summary(metadata_subset$age_at_index)
+sd(metadata_subset$age_at_index, na.rm = TRUE)
+```
+
+```{r}
+# Histograma de Idade 
+ggplot(metadata_subset[!is.na(metadata_subset$age_at_index), ], aes(x = age_at_index)) +
+  geom_density(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Densidade da Idade dos Pacientes",
+       x = "Idade",
+       y = "Densidade")
+```
+
+### Análises cruzadas
+
+```{r}
+#Idade média dos pacientes vivos vs. mortos:
+ggplot(metadata_subset[!is.na(metadata_subset$age_at_index), ], aes(x = vital_status, y = age_at_index)) +
+  geom_boxplot(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Idade por Status Vital", x = "Status Vital", y = "Idade") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+tapply(metadata_subset$age_at_index, metadata_subset$vital_status, summary)
+
+```
+
+```{r}
+# Pacientes com tumor x tecido normal: idade média
+ggplot(metadata_subset[!is.na(metadata_subset$age_at_index), ], aes(x = tissue_type, y = age_at_index)) +
+  geom_boxplot(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Idade por Tipo de Tecido", x = "", y = "Idade") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+tapply(metadata_subset$age_at_index, metadata_subset$tissue_type, summary)
+
+```
+
+```{r}
+#Frequência de vivos/mortos por tipo de tumor
+ggplot(tumor_class[!is.na(tumor_class$age_at_index), ], aes(x = classification_of_tumor, fill = vital_status)) +
+  geom_bar(position = "fill") +  # proporções
+  theme_minimal() +
+  labs(title = "Proporção de Status Vital por Classificação do Tumor",
+       x = "Classificação do Tumor", y = "Proporção") +
+  scale_y_continuous(labels = scales::percent)
+
+tapply(tumor_class$age_at_index, tumor_class$vital_status, summary)
+```
+
+### Testes de Hipótese
+
+verificar se a variável numérica segue uma distribuição normal
+
+H0 (Hipótese nula): Os dados seguem uma distribuição normal.
+
+H1 (Hipótese alternativa): Os dados não seguem uma distribuição normal.
+
+```{r}
+shapiro.test(metadata_subset$age_at_index)
+```
+
+#### Vital Status vs. Age at Index
+
+```{r}
+wilcox.test(age_at_index ~ vital_status, data = metadata_subset)
+```
+
+#### Age at Index vs. Tissue Type
+
+```{r}
+wilcox.test(age_at_index ~ tissue_type, data = metadata_subset)
+```
+
+#### Age at Index vs. Primary Diagnosis
+
+```{r}
+kruskal.test(age_at_index ~ primary_diagnosis, data = diagnosis_filtered)
+```
+
+#### Age at Index vs. Classification of Tumor
+
+```{r}
+kruskal.test(age_at_index ~ classification_of_tumor, data = tumor_class)
+```
+
+#### Vital Status vs. Classification of Tumor
+
+```{r}
+contingency_table <- table(tumor_class$vital_status, tumor_class$classification_of_tumor)
+chisq.test(contingency_table)
+```
