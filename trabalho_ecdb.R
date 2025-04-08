@@ -64,6 +64,7 @@ colnames(metadata)
 #check if the number of genes/assays are correct (genes x assays)
 dim(rna_counts)
 
+
 #check if there are essential columns missing on our metadata 
 dim(metadata)
 
@@ -168,10 +169,10 @@ prop.table(table(metadata_subset$primary_diagnosis)) * 100
 
 #Gráficos de barra 
 # Exemplo: vital_status
-ggplot(metadata_subset[!is.na(metadata_subset$vital_status), ], aes(x = vital_status)) +
+ggplot(metadata_subset[!is.na(metadata_subset$vital_status), ], aes(x = vital_status, y = after_stat(prop), group = 1)) +
   geom_bar(fill = "lightcoral") +
   theme_minimal() +
-  labs(title = "Distribuição: Vital Status", x = "", y = "Frequência") +
+  labs(title = "Distribuição: Vital Status", x = "", y = "Proporção") +
   theme(plot.title = element_text(hjust = 0.5))
 
 # Exemplo: classification_of_tumor <- juntar primario vs outros 
