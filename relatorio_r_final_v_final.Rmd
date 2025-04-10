@@ -1,0 +1,846 @@
+---
+title: "RNA-Seq_analysis_UCEC"
+author: "Karolina Barbosa - PG55129; Elidiane do Rosário - PG55128, João Ferreira - PG52182"
+date: "2025-04-07"
+output: html_document
+---
+
+# Introdução
+
+O **Cancro** constitui uma das patologias mais complexas e desafiantes enfrentadas pela humanidade. Encontram-se identificados mais de 200 tipos distintos de cancro, cada um caracterizado por perfis moleculares específicos que exigem abordagens terapêuticas diferenciadas. Esta doença distingue-se por alterações genómicas dinâmicas, sendo que os padrões de anomalias genéticas — incluindo mutações somáticas, variações no número de cópias, alterações na expressão génica e múltiplas modificações epigenéticas — são únicos para cada tipo tumoral. Os avanços recentes nas tecnologias de sequenciação genómica de alto rendimento, conjugados com o progresso na bioinformática, têm ampliado significativamente o conhecimento sobre a biologia molecular do cancro ^1^.
+
+Neste contexto, destaca-se o contributo do consórcio *The Cancer Genome Atlas* (**TCGA**), que, ao longo de uma década, agregou dados clínicos, patológicos e perfis moleculares multi-ómicos relativos a mais de 11.000 tumores humanos, abrangendo 33 entidades neoplásicas distintas^2^. O carácter de acesso livre dos dados disponibilizados pelo TCGA reflete o compromisso desta iniciativa com a transparência científica e a partilha de conhecimento, tendo constituído um marco fundamental na compreensão da biologia tumoral e no desenvolvimento de novas estratégias terapêuticas, de diagnóstico e de prevenção.
+
+Entre as neoplasias presentes no TCGA encontra-se o **Carcinoma Endometrial do Corpo do Útero** — frequentemente designado por Cancro Endometrial —, um tumor epitelial maligno que tem origem no endométrio, o revestimento interno do útero^3^.
+
+Segundo dados da **Organização Mundial da Saúde (OMS)**, em 2020, o cancro do corpo do útero ocupava, a nível global, a 15.ª posição entre os tipos de cancro com maior incidência, com mais de 417.000 novos diagnósticos e 97.370 mortes atribuídas à doença. Em Portugal, foi a 13.ª neoplasia maligna mais incidente, com 1.238 novos casos e 361 óbitos registados nesse ano^4^.\
+\
+A maior prevalência desta neoplasia em países desenvolvidos está fortemente correlacionada com fatores como o envelhecimento populacional e o aumento da prevalência de obesidade e diabetes^3,5^. Embora ocorra predominantemente em mulheres pós-menopáusicas, estima-se que entre 15% e 25% dos casos afetem mulheres em idade reprodutiva, o que levanta desafios específicos no âmbito da preservação da fertilidade^6^. Não obstante os avanços verificados no diagnóstico precoce e nas modalidades terapêuticas, o cancro endometrial continua a representar um desafio significativo em saúde pública, em virtude do seu prognóstico heterogéneo, condicionado sobretudo pelo estádio clínico e pelo subtipo histológico ao momento do diagnóstico.
+
+#### **Objetivo**
+
+Face ao exposto, o presente trabalho tem como objetivo a análise do perfil transcriptómico de pacientes diagnosticados com carcinoma do corpo uterino, tendo por base condições específicas descritas nos metadados clínicos. Através da análise da expressão génica diferencial, realizada utilizando o software **R**, pretende-se compreender de que forma algumas dessas condições modulam o perfil transcriptómico das células e em que medida estas se correlacionam com a gravidade clínica da doença.
+
+#### **Estrutura**
+
+O presente trabalho será desenvolvido em duas fases distintas. A primeira fase do estudo incluirá a preparação e pré-processamento dos dados, incluindo a limpeza e transformação dos dados para garantir a sua qualidade e adequação à análise subsequente. Serão também efectuadas análises exploratórias dos dados, incluindo a sumarização dos mesmos por meio de estatísticas descritivas, bem como a visualização gráfica dos dados para promover uma melhor compreensão das distribuições e relações subjacentes. A análise estatística univariada será realizada para identificar padrões significativos e destacar variáveis relevantes. Além disso, será conduzida uma análise de expressão diferencial e de enriquecimento, com o objetivo de identificar genes ou características celulares que se encontram diferencialmente expressos entre os diferentes grupos ou condições, bem como explorar possíveis vias biológicas enriquecidas associadas às diferenças observadas.
+
+A segunda fase do trabalho terá como foco a aplicação de técnicas de análise não supervisionada, nomeadamente o *clustering* de genes e/ou amostras, e a redução de dimensionalidade através de métodos como *Multidimensional Scaling* (MDS) ou outras abordagens relevantes. Estas técnicas permitirão identificar padrões ocultos nos dados e facilitarão a interpretação de grupos e variáveis associadas à heterogeneidade da amostra. Adicionalmente, será realizada uma análise preditiva com recurso a modelos de aprendizagem automática, como a classificação de amostras e regressão, para prever desfechos com base nas características genéticas e clínicas. Serão comparados pelo menos dois modelos preditivos, com o intuito de avaliar o desempenho e identificar o modelo mais eficaz para a tarefa em questão. Por fim, a fase final incluirá a realização de uma análise de seleção e importância de genes, utilizando abordagens baseadas em aprendizagem supervisionada, com o objectivo de identificar os genes mais relevantes para os desfechos clínicos e biológicos em estudo.
+
+# Primeira Fase
+
+## Instalação e importação dos packages
+
+Para a realização deste trabalho, foram instalados os seguintes pacotes em R, os quais são essenciais para a execução das análises e processamento dos dados:
+
+```{r, message=FALSE, warning=FALSE}
+if (!requireNamespace("conflicted", quietly = TRUE)) {
+  install.packages("conflicted")
+}
+
+library(conflicted)
+library(data.table)
+library(tidyverse)
+library(TCGAbiolinks)  # For TCGA data
+library(SummarizedExperiment)
+library(ggplot2)
+library(DESeq2)
+library(graphics)
+library(edgeR)
+library(org.Hs.eg.db)
+library(clusterProfiler)
+library(dplyr)
+library(tidyr)
+library(enrichplot)
+library(dplyr)
+conflict_prefer("first", "dplyr")
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+
+```
+
+## Extração dos metadados e dos dados transcriptômicos a partir da base de dados
+
+Com o objetivo de facilitar o acesso aos dados de expressão génica do projeto TCGA-UCEC, relacionado ao **cancro endometrial**, o processo de extração dos dados foi estruturado para garantir a eficiência e a reutilização dos dados. Primeiramente, o código verifica a existência de um arquivo denominado "rna_data_TCGA_UCEC.rds" armazenado localmente. Caso o arquivo já esteja disponível, os dados são carregados diretamente do disco através da função **readRDS()**, evitando a necessidade de realizar a consulta novamente.
+
+No caso de o arquivo não estar presente, o código realiza uma consulta ao portal do **Genomic Data Commons (GDC)**, utilizando a função **GDCquery()**, e especificando que o projeto de interesse é o **TCGA-UCEC** e que os dados a serem recuperados correspondem à expressão génica processada pelo método **"STAR - Counts"**. Após a consulta, os dados são baixados e preparados para análise utilizando a função **GDCprepare()**, que organiza e ajusta os dados para posterior análise estatística e bioinformática.
+
+Após o processamento, os dados são salvos no formato **RDS**, utilizando a função **saveRDS()**, o que assegura a integridade e facilita o reuso dos dados em futuras análises, sem a necessidade de repetir o processo de download e preparação. Este fluxo de trabalho permite otimizar a manipulação e a análise dos dados transcriptómicos, garantindo a consistência e a eficiência ao longo de todo o estudo.
+
+```{r}
+if (file.exists("rna_data_TCGA_UCEC.rds")) {
+  rna_data <- readRDS("rna_data_TCGA_UCEC.rds")
+} else {
+  query <- GDCquery(
+    project = "TCGA-UCEC",
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification",
+    workflow.type = "STAR - Counts"
+  )
+  
+  GDCdownload(query)
+  rna_data <- GDCprepare(query)
+  saveRDS(rna_data, file = "rna_data_TCGA_UCEC.rds")
+}
+```
+
+## Preparação e Pré-processamento dos dados
+
+Inicialmente, os dados de contagem génica foram extraídos do objeto *rna_data* utilizando a função **assay()**, sendo posteriormente convertidos para um *data frame* e armazenados na variável **rna_counts**. De forma análoga, as informações dos metadados associadas às amostras foram extraídas através da função **colData()** e armazenadas na variável **metadata**.
+
+Seguidamente, foram realizadas verificações básicas para assegurar a integridade e consistência dos dados. O código examina os nomes das colunas e linhas de ambos os *data frames* (**rna_counts** e **metadata**) para identificar possíveis problemas, como espaços em branco, caracteres estranhos ou inconsistências. Além disso, a função **dim()** foi utilizada para verificar as dimensões dos dois *data frames*, garantindo que o número de genes (linhas) e amostras (colunas) esteja conforme o esperado.
+
+Os dados **rna_counts** contêm 60.660 observações de 589 variáveis, enquanto **metadata** apresenta 589 observações de 84 variáveis.
+
+Por último, o código procede à verificação da presença de valores omissos (NA) nos dados, utilizando a função **colSums(is.na())**. Esta verificação é crucial para assegurar a qualidade dos dados e prevenir problemas em análises subsequentes. No caso das contagens génicas (**rna_counts**), não foram detectados valores omissos, o que indica um bom nível de completude dos dados. No entanto, nos metadados (**metadata**), foram identificados alguns valores omissos, o que requer atenção, dado que esses valores podem impactar determinadas análises, dependendo das variáveis afetadas.
+
+```{r, echo=TRUE, results='hide'}
+
+#Converter rna_data para um dataframe 
+rna_counts <- as.data.frame(assay(rna_data))
+metadata <- as.data.frame(colData(rna_data)) 
+
+
+#Exploração inicial de dados 
+#Verificar estrutura dos dados 
+colnames(rna_counts) 
+rownames(rna_counts)
+colnames(metadata)
+
+#Verificar dimensões (genes x assays)
+dim(rna_counts)
+dim(metadata)
+
+#Checar existência de valores omissos
+colSums(is.na(rna_counts)) 
+
+colSums(is.na(metadata)) 
+
+```
+
+### Metadados
+
+No tratamento dos metadados, foi realizada, inicialmente, uma verificação da percentagem de valores omissos (NA) em cada variável, utilizando a função **colSums(is.na())**, combinada com o número total de amostras. Esta etapa permitiu identificar as variáveis que apresentavam altos níveis de incompletude. Como critério de filtragem, foram removidas todas as variáveis cuja proporção de valores ausentes excedia 10%. Como resultado deste processo, das 84 variáveis inicialmente presentes nos metadados, restaram 47 variáveis na variável **metadata_clean**, as quais apresentavam dados suficientemente completos para as análises subsequentes.
+
+```{r, echo=TRUE, results='hide'}
+#Verificar porcentagem de valores omissos em cada coluna dos metadados
+metadata_na_percent <- colSums(is.na(metadata)) / nrow(metadata) * 100
+metadata_na_percent
+```
+
+```{r, echo=TRUE, results='hide'}
+#Remover colunas com valores omissos > 10%
+metadata_clean <- metadata[, colMeans(is.na(metadata)) <= 0.1]
+```
+
+### RNA
+
+```{r, echo=TRUE, results='hide'}
+#filtragem da contagem de dados em RNA 
+rna_filtered <- rna_counts[apply(rna_counts,1 , sd) > 0, ]
+
+
+#padronização dos dados – aplicado o escore z a cada linha (gene)
+rna_normalized <- t(scale(t(rna_filtered))) #desta forma evitamos a produção de valores NaN 
+colSums(is.na(rna_normalized))
+
+apply(rna_normalized, 1, mean)  # Média de cada gene (deve ser ~0)
+apply(rna_normalized, 1, sd)    # Desvio padrão de cada gene (deve ser ~1)
+
+```
+
+## Análise Descritiva e Exploratória
+
+A partir das 47 variáveis restantes nos metadados, foram selecionadas aquelas com maior potencial de relevância para os objetivos do estudo. Para essas variáveis, exploraram-se as suas distribuições utilizando a função **table()**, o que permitiu compreender como as amostras estão distribuídas entre os diferentes grupos de interesse e planear adequadamente as análises comparativas subsequentes.
+
+```{r}
+table(colData(rna_data)$tissue_type)
+table(colData(rna_data)$classification_of_tumor)
+table(colData(rna_data)$primary_diagnosis)
+table(colData(rna_data)$vital_status)
+```
+
+As variáveis selecionadas para análise foram as seguintes:
+
+-    **tissue_type**, que permite a comparação da expressão génica entre tecidos normais e tumorais;
+
+-    **classification_of_tumor**, que possibilita a análise das diferenças na expressão génica entre os diferentes tipos de tumor;
+
+-    **vital_status**, relevante para estudos de sobrevivência, estabelecendo a relação entre a expressão génica e o desfecho clínico dos pacientes;
+
+-    **primary_diagnosis**, útil para avaliar a expressão génica em diferentes subtipos de cancro;
+
+-    **age_at_index**, que permite investigar possíveis associações entre a idade dos pacientes e os padrões de expressão génica.
+
+Resumo das variáveis escolhidas:
+
+| Variável                | Tipo       | Descrição         |
+|-------------------------|------------|-------------------|
+| vital_status            | Categórica | Vivos vs mortos   |
+| age_at_index            | Numérica   | Idade do paciente |
+| classification_of_tumor | Categórica | Tipo de tumor     |
+| tissue_type             | Categórica | Normal vs Tumoral |
+| primary_diagnosis       | Categórica | Subtipo de câncer |
+
+Após a seleção das variáveis de interesse, foi criado o objeto **metadata_subset**, mantendo exclusivamente essas variáveis. O objetivo desta abordagem foi otimizar o uso de memória, tornar os dados mais organizados e reduzir a probabilidade de erros durante as análises subsequentes. Para alcançar este resultado, foi utilizada a função **select()** do pacote **dplyr**, a qual permite selecionar de forma específica as colunas **vital_status**, **age_at_index**, **classification_of_tumor**, **tissue_type** e **primary_diagnosis**.
+
+```{r}
+metadata_subset <- dplyr::select(
+  metadata_clean,
+  vital_status,
+  age_at_index,
+  classification_of_tumor,
+  tissue_type,
+  primary_diagnosis
+)
+```
+
+### Análise descritiva das variáveis categóricas
+
+Com o subconjunto de metadados previamente definido, foram realizadas análises exploratórias com o intuito de aprofundar a compreensão das variáveis selecionadas. No caso das variáveis categóricas, foram construídas tabelas de frequência, permitindo visualizar a distribuição das amostras entre as diferentes categorias.
+
+#### Vital_Status
+
+A variável **vital_status** representa o estado de sobrevivência dos pacientes com cancro, sendo composta pelas categorias *Alive*, *Dead* e *NA*. Entre as 589 amostras disponíveis, aproximadamente 83% dos pacientes encontravam-se vivos, enquanto cerca de 17% tinham falecido.
+
+Foi gerada uma tabela de frequência acompanhada das proporções percentuais de cada categoria, de forma a facilitar a interpretação dos dados. Para complementar a análise, foi elaborado um gráfico de barras utilizando a função **ggplot()**, no qual se representa visualmente a distribuição dos estados de vitalidade, tendo sido excluídas as amostras com valores omissos.
+
+```{r}
+table(metadata_subset$vital_status) #Frequência Absoluta
+
+prop.table(table(metadata_subset$vital_status)) * 100 #Frequência Relativa
+```
+
+```{r, echo=FALSE}
+ggplot(metadata_subset[!is.na(metadata_subset$vital_status), ], aes(x = vital_status, y = after_stat(prop), group = 1)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Vital Status", x = "", y = "Proporção") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+#### Classification of Tumor
+
+A variável **classification_of_tumor** descreve o tipo de ocorrência tumoral registada em cada amostra. As classificações observadas incluem: *primary* (492 amostras), *metastasis* (21 amostras), *recurrence* (18 amostras) e *prior primary* (19 amostras).
+
+```{r}
+table(colData(rna_data)$classification_of_tumor)
+```
+
+Dado que algumas das categorias da variável **classification_of_tumor** apresentam um número reduzido de amostras em comparação com o grupo *primary*, optou-se por proceder ao seu reagrupamento. Especificamente, as categorias *metastasis*, *recurrence* e *prior primary* foram agregadas numa única categoria, de modo a permitir uma comparação mais robusta e estatisticamente significativa com o grupo *primary*.
+
+Para esse efeito, foi criado um novo objeto, **tumor_class**, no qual se unificaram as referidas categorias menos representadas sob uma designação comum, como por exemplo *outros*. Esta abordagem visa mitigar os efeitos de viés associados ao desequilíbrio de classes, assegurando maior fiabilidade nas análises subsequentes.
+
+```{r}
+tumor_class <- metadata_subset %>%
+  mutate(classification_of_tumor = ifelse(classification_of_tumor == "primary", "primary", "others"))
+```
+
+Em seguida, foram geradas tabelas de frequência com o intuito de visualizar a distribuição da variável **classification_of_tumor**, já com a nova categorização. Para complementar esta análise, foi construído um gráfico de barras utilizando a função **ggplot()**, representando visualmente a frequência das classificações tumorais. As amostras com valores omissos foram previamente excluídas, de forma a garantir a integridade da representação gráfica.
+
+Observou-se que aproximadamente 85% das amostras pertencem à categoria *primary*, enquanto os restantes cerca de 15%, agora agrupados sob a designação *others*, correspondem às classificações *metastasis*, *recurrence* e *prior primary*. Esta simplificação contribui para uma análise comparativa mais equilibrada entre os grupos de interesse.
+
+```{r}
+table(tumor_class$classification_of_tumor) #Frequência Absoluta
+
+prop.table(table(tumor_class$classification_of_tumor)) * 100 #Frequência Relativa
+```
+
+```{r, echo=FALSE}
+#gráfico de barra 
+ggplot(tumor_class[!is.na(tumor_class$classification_of_tumor), ], aes(x = classification_of_tumor)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Classification of Tumor", x = "", y = "Frequência") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+#### Tissue_type
+
+A variável **tissue_type** apresenta duas categorias distintas: *normal* e *tumor*. A análise da sua distribuição revelou que aproximadamente 94% das amostras correspondem a tecidos tumorais, enquanto cerca de 6% dizem respeito a tecidos normais. Esta assimetria é expectável, tendo em conta que o principal foco do projeto TCGA consiste na caracterização molecular de tecidos neoplásicos.
+
+Para ilustrar esta distribuição, foram construídas tabelas de frequência e um gráfico de barras recorrendo à função **ggplot()**, o qual confirma visualmente a predominância de amostras tumorais no conjunto de dados analisado.
+
+```{r}
+table(metadata_subset$tissue_type)
+prop.table(table(metadata_subset$tissue_type)) * 100
+```
+
+```{r, echo=FALSE}
+ggplot(metadata_subset, aes(x = tissue_type)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Tissue Type", x = "", y = "Frequência") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+#### Primary_diagnosis
+
+A variável **primary_diagnosis** apresenta uma ampla diversidade de diagnósticos associados ao cancro endometrial, refletindo a heterogeneidade clínica e histopatológica desta doença.
+
+```{r}
+table(colData(rna_data)$primary_diagnosis)
+```
+
+A análise da frequência das categorias revelou que duas se destacam claramente: *Endometrioid adenocarcinoma, NOS*, com 404 ocorrências, e *Serous cystadenocarcinoma, NOS*, com 124 ocorrências. As restantes categorias apresentaram frequências individuais significativamente mais baixas.
+
+Com o intuito de simplificar a análise e aumentar a robustez estatística das comparações entre grupos, foi criado um novo objeto, **diagnosis_filtered**, no qual apenas as duas categorias mais representadas foram mantidas de forma explícita. As demais foram agregadas sob o rótulo genérico *Others*. Esta abordagem permite minimizar os efeitos de variáveis com baixa representatividade e assegurar maior estabilidade nos testes estatísticos subsequentes.\
+No entanto, duas categorias se destacam: *Endometrioid adenocarcinoma, NOS* com 404 ocorrências e *Serous cystadenocarcinoma, NOS* com 124 ocorrências.
+
+```{r}
+diagnosis_filtered <- metadata_subset %>%
+  mutate(primary_diagnosis = ifelse(
+    primary_diagnosis %in% c("Endometrioid adenocarcinoma, NOS", "Serous cystadenocarcinoma, NOS"),
+    primary_diagnosis,
+    "Others"
+  ))
+```
+
+Após o reagrupamento das categorias da variável **primary_diagnosis**, foram geradas tabelas de frequência absoluta e relativa com o objetivo de visualizar a distribuição dos diferentes diagnósticos. Para complementar a análise, foi construído um gráfico de barras utilizando a função **ggplot()**, representando visualmente a predominância dos dois principais subtipos tumorais, com as restantes classificações incluídas na categoria *Others*.
+
+A análise revelou que aproximadamente 68% das amostras correspondem a *Endometrioid adenocarcinoma, NOS*, enquanto cerca de 21% pertencem a *Serous cystadenocarcinoma, NOS*. Os 10% restantes distribuem-se pelas demais classificações, agora agrupadas sob o rótulo *Others*. Esta representação gráfica reforça a concentração da maioria das amostras em dois subtipos histológicos principais, evidenciando a sua relevância para análises comparativas no âmbito do presente estudo.
+
+```{r}
+table(diagnosis_filtered$primary_diagnosis)
+prop.table(table(diagnosis_filtered$primary_diagnosis)) * 100
+```
+
+```{r, echo=FALSE}
+ggplot(diagnosis_filtered, aes(x = primary_diagnosis, y = after_stat(prop), group = 1)) +
+  geom_bar(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Distribuição: Primary Diagnosis", x = "", y = "Frequência") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+### Análise descritiva da variável numérica
+
+#### Age_at_Index
+
+A variável **age_at_index** corresponde à idade dos pacientes no momento do diagnóstico. Para caracterizar a sua distribuição, foram utilizadas medidas descritivas como a média, a mediana, os valores mínimo e máximo, bem como o desvio padrão, sendo previamente removidos os valores omissos para assegurar a fiabilidade da análise.
+
+Os resultados indicam que a média de idade dos pacientes é de 64 anos, com uma mediana próxima deste valor. A idade mínima registada foi de 31 anos e a máxima de 89 anos, evidenciando uma ampla variação etária entre os indivíduos incluídos no estudo.
+
+```{r}
+summary(metadata_subset$age_at_index)
+sd(metadata_subset$age_at_index, na.rm = TRUE)
+```
+
+Posteriormente, foi elaborado um gráfico de densidade recorrendo à função **ggplot()**, com o intuito de representar a distribuição das idades na amostra de forma mais contínua e informativa. A análise deste gráfico revela uma maior concentração de pacientes na faixa etária entre os 50 e os 70 anos, o que reflete a prevalência deste intervalo etário no conjunto de dados. Esta observação está em consonância com a literatura, que aponta para uma maior incidência do cancro endometrial em mulheres pós-menopáusicas.
+
+```{r, echo=FALSE}
+# Histograma de Idade 
+ggplot(metadata_subset[!is.na(metadata_subset$age_at_index), ], aes(x = age_at_index)) +
+  geom_density(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Densidade da Idade dos Pacientes",
+       x = "Idade",
+       y = "Densidade")
+```
+
+### Comparação entre categorias
+
+#### Idade e status vital
+
+Com o intuito de identificar possíveis associações entre a idade dos pacientes e o respetivo estado vital, foi realizada uma análise comparativa entre a variável **age_at_index** e **vital_status**. Esta comparação visa explorar se a sobrevivência dos indivíduos está relacionada com a sua idade à data do diagnóstico.
+
+Para tal, foi construído um gráfico de **boxplot** recorrendo à função **ggplot()**, que permite visualizar a distribuição da idade em cada uma das categorias de estado vital (*Alive* e *Dead*). O gráfico revela uma tendência clara: os pacientes falecidos apresentam, em média, idades mais elevadas em comparação com os pacientes que se encontram vivos.
+
+Esta tendência é corroborada pelas estatísticas descritivas geradas para cada grupo, as quais evidenciam uma diferença de aproximadamente cinco anos tanto na mediana como na média das idades entre os dois estados vitais. Tal padrão sugere que a idade pode desempenhar um papel relevante na sobrevivência dos pacientes com cancro endometrial, embora sejam necessárias análises mais aprofundadas para confirmar uma relação estatisticamente significativa.
+
+```{r, echo=FALSE}
+#Idade média dos pacientes vivos vs. mortos:
+ggplot(metadata_subset[!is.na(metadata_subset$age_at_index), ], aes(x = vital_status, y = age_at_index)) +
+  geom_boxplot(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Idade por Status Vital", x = "Status Vital", y = "Idade") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+tapply(metadata_subset$age_at_index, metadata_subset$vital_status, summary)
+
+```
+
+#### Idade e tipo de tecido
+
+Foi realizada uma análise comparativa entre a idade dos pacientes (**age_at_index**) e o tipo de tecido (**tissue_type**) com o objetivo de identificar possíveis padrões etários associados à presença de tecido tumoral ou normal. Para esta análise, foi gerado um gráfico de **boxplot**, que permite observar a distribuição das idades nos dois grupos de tecido (*normal* e *tumor*).
+
+A análise revela que os pacientes com tecido tumoral tendem a ser, em média, mais velhos em comparação com os pacientes com tecido normal. Este padrão é também corroborado pelas estatísticas descritivas, que indicam que tanto a mediana quanto a média das idades são mais elevadas no grupo de tecido tumoral, sugerindo uma maior prevalência de cancro em faixas etárias mais avançadas.
+
+```{r, echo=FALSE}
+# Pacientes com tumor x tecido normal: idade média
+ggplot(metadata_subset[!is.na(metadata_subset$age_at_index), ], aes(x = tissue_type, y = age_at_index)) +
+  geom_boxplot(fill = "lightcoral") +
+  theme_minimal() +
+  labs(title = "Idade por Tipo de Tecido", x = "", y = "Idade") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+tapply(metadata_subset$age_at_index, metadata_subset$tissue_type, summary)
+
+```
+
+#### Status vital por classificação do tumor
+
+Foi realizada uma análise para investigar a distribuição do status vital (**vital_status**) em relação à classificação do tumor (**classification_of_tumor**), com o objetivo de identificar padrões associados à sobrevivência dos pacientes em diferentes tipos de tumor. Para esta análise, foi gerado um gráfico de barras empilhadas (utilizando **geom_bar**), que permite visualizar as proporções de pacientes vivos e falecidos em cada categoria de classificação do tumor.
+
+A visualização indica que a grande maioria dos pacientes na categoria *primary* está viva, o que sugere que, para este grupo, a taxa de sobrevivência é relativamente alta. Por outro lado, na categoria *others*, que agrupa as classificações metastáticas, de recidiva e primárias anteriores, observa-se uma proporção maior de óbitos em comparação com a categoria *primary*. Este padrão pode indicar que tumores classificados como metastáticos ou recidivantes estão associados a um pior prognóstico, refletindo uma menor taxa de sobrevivência.
+
+```{r, echo=FALSE}
+#Frequência de vivos/mortos por tipo de tumor
+ggplot(tumor_class[!is.na(tumor_class$age_at_index), ], aes(x = classification_of_tumor, fill = vital_status)) +
+  geom_bar(position = "fill") +  # proporções
+  theme_minimal() +
+  labs(title = "Proporção de Status Vital por Classificação do Tumor",
+       x = "Classificação do Tumor", y = "Proporção") +
+  scale_y_continuous(labels = scales::percent)
+
+tapply(tumor_class$age_at_index, tumor_class$vital_status, summary)
+
+```
+
+### Testes de Hipótese
+
+Para todos os testes de hipótese, foi considerado um valor de p \< 0.05 como indicativo de significância estatística.
+
+Para avaliar se a variável numérica **age_at_index** segue uma distribuição normal, foi aplicado o **teste de normalidade de Shapiro-Wilk**, onde:
+
+-   **H₀ (Hipótese nula):** Os dados seguem uma distribuição normal.
+
+-   **H₁ (Hipótese alternativa):** Os dados não seguem uma distribuição normal.
+
+Este teste visa determinar se os dados se distribuem de forma normal, o que é uma suposição comum em muitos testes estatísticos paramétricos.
+
+```{r}
+shapiro.test(metadata_subset$age_at_index)
+```
+
+O teste resultou em um **valor de p** **inferior a 0.05**, o que leva à **rejeição da hipótese nula**. Este resultado indica que os dados de **age_at_index** não seguem uma distribuição normal, sugerindo a necessidade de utilizar métodos estatísticos não paramétricos para análises subsequentes. 
+
+#### Vital Status vs. Age at Index
+
+Para avaliar se existe uma diferença significativa na **idade média** entre os pacientes **vivos** e **falecidos**, foi utilizado o **teste de Mann-Whitney (teste de soma de postos de Wilcoxon)**. Este teste foi escolhido devido à natureza **não paramétrica** dos dados, uma vez que já foi verificado que a variável **age_at_index** não segue uma distribuição normal.
+
+As **hipóteses** formuladas para este teste foram:
+
+-    **H₀ (Hipótese nula):** A média da idade dos pacientes vivos é igual à média dos pacientes mortos.
+
+-    **H₁ (Hipótese alternativa):** A média da idade dos pacientes vivos é diferente da média dos pacientes mortos.
+
+```{r}
+wilcox.test(age_at_index ~ vital_status, data = metadata_subset)
+```
+
+O teste resultou em um **valor de p inferior a 0.05**, o que leva à **rejeição da hipótese nula**. Esse resultado indica que **a idade média dos pacientes vivos é significativamente diferente da idade média dos pacientes falecidos**, com uma diferença significativa nas idades entre os dois grupos.
+
+#### Age at Index vs. Tissue Type
+
+Para investigar se a **idade média** dos pacientes difere entre os grupos de **tecido normal** e **tecido tumoral**, foi utilizado o **teste de Mann-Whitney (teste de soma de postos de Wilcoxon)**, devido à natureza **não paramétrica** dos dados.
+
+As **hipóteses** formuladas para este teste foram:
+
+-    **H₀ (Hipótese nula):** A média da idade dos pacientes é igual entre os tecidos normais e tumorais.
+
+-    **H₁ (Hipótese alternativa):** A média da idade dos pacientes difere entre os tecidos normais e tumorais.
+
+```{r}
+wilcox.test(age_at_index ~ tissue_type, data = metadata_subset)
+```
+
+O resultado do teste apresentou um **valor de p inferior a 0.05**, o que leva à **rejeição da hipótese nula**. Este resultado indica que **a média de idade dos pacientes com tecido tumoral é significativamente diferente da média de idade dos pacientes com tecido normal**.
+
+#### Age at Index vs. Primary Diagnosis
+
+Para avaliar se a **idade média** dos pacientes difere entre os **diferentes diagnósticos primários**, foi utilizado o **teste de Kruskal-Wallis**. Este teste foi escolhido devido à natureza **não paramétrica** da distribuição de idades e à variável categórica do diagnóstico primário.
+
+As **hipóteses** formuladas para este teste foram:
+
+-   **H₀ (Hipótese nula):** A média da idade dos pacientes é igual entre todos os diagnósticos primários.
+
+-   **H₁ (Hipótese alternativa):** A média da idade dos pacientes difere entre pelo menos dois diagnósticos primários.
+
+```{r}
+kruskal.test(age_at_index ~ primary_diagnosis, data = diagnosis_filtered)
+```
+
+O teste resultou em um **valor de p inferior a 0.05**, o que leva à **rejeição da hipótese nula**. Esse resultado indica que **há uma diferença significativa na idade média** entre os pacientes com diferentes diagnósticos primários, sugerindo que a idade pode ser um fator associado ao tipo de diagnóstico primário.
+
+#### Age at Index vs. Classification of Tumor
+
+Para investigar se a **idade média** dos pacientes difere entre os **diferentes tipos de tumor**, foi aplicado o **teste de Kruskal-Wallis**. Este teste foi escolhido devido à variável de **classificação do tumor** ser categórica e à distribuição **não paramétrica** das idades.
+
+As **hipóteses** formuladas para este teste foram:
+
+-    **H₀ (Hipótese nula):** Não há diferença significativa entre as idades e os diferentes tipos de tumor.
+
+-    **H₁ (Hipótese alternativa):** Pelo menos um tipo de tumor tem uma idade média diferente.
+
+```{r}
+kruskal.test(age_at_index ~ classification_of_tumor, data = tumor_class)
+```
+
+O teste resultou em um **valor de p superior a 0.05**, o que leva à **não rejeição da hipótese nula**. Esse resultado indica que **não há diferença significativa na idade média** entre os diferentes tipos de tumor, sugerindo que a idade dos pacientes pode não estar associada de forma relevante ao tipo de tumor classificado.
+
+#### Vital Status vs. Classification of Tumor
+
+Para investigar a **associação** entre o **status vital (vital_status)** e a **classificação do tumor (classification_of_tumor)**, foi utilizado o **teste de qui-quadrado de Pearson**, com a **correção de continuidade de Yates**, para avaliar se as duas variáveis são independentes ou se existe uma associação significativa entre elas.
+
+As **hipóteses** formuladas para este teste foram:
+
+-    **H₀ (Hipótese nula):** Não há associação entre o status vital e a classificação do tumor (as duas variáveis são independentes).
+
+-    **H₁ (Hipótese alternativa):** Existe uma associação significativa entre o status vital e a classificação do tumor.
+
+```{r}
+contingency_table <- table(tumor_class$vital_status, tumor_class$classification_of_tumor)
+chisq.test(contingency_table)
+```
+
+Com base nos resultados do teste, obteve-se um **valor de p inferior a 0.05**, o que leva à **rejeição da hipótese nula**. Este resultado indica que existe uma **associação significativa** entre o status vital dos pacientes e a classificação do tumor, sugerindo que o tipo de tumor pode estar relacionado ao desfecho clínico, ou seja, se o paciente está vivo ou falecido.
+
+## Análise de expressão diferencial
+
+Com base nos dados previamente pré-processados e filtrados, procedeu-se à análise de expressão diferencial recorrendo ao pacote DESeq2, com o objetivo de identificar genes cuja expressão se apresenta significativamente alterada entre os grupos de pacientes vivos e falecidos, nos dois subtipos tumorais mais prevalentes: Endometrioid adenocarcinoma (EA) e Serous cystadenocarcinoma (SC).
+
+Antes da execução da análise, foi realizado um filtro adicional nos dados de contagem génica, de modo a assegurar maior robustez estatística. Foram retidos apenas os genes que apresentavam uma contagem superior a 20 em pelo menos 4 amostras, o que permitiu excluir genes com expressão residual ou esporádica. Após esta etapa de filtragem, foram consideradas cerca de 27 mil genes e 404 amostras, a partir de um total inicial de aproximadamente 57 mil genes. Este critério permitiu focar a análise em genes com expressão biologicamente relevante, aumentando a fiabilidade dos resultados obtidos.
+
+###Endemetrioid adenocarcinoma (EA)
+
+```{r, message=FALSE, warning=FALSE}
+
+#Expressao diferencial
+
+#vital_status x EA
+# 1. Filtrar metadados: apenas Endometrioid adenocarcinoma, NOS e sem NAs
+EA_meta <- metadata_subset %>%
+  filter(primary_diagnosis == "Endometrioid adenocarcinoma, NOS" & !is.na(vital_status))
+
+# 2. Garantir que os nomes das colunas em contagens correspondem às amostras
+rna_EA <- rna_counts[, rownames(EA_meta)]
+
+# 3. Filtrar genes: manter genes com contagem ≥ 20 em pelo menos 4 amostras
+rna_filtered_EA <- rowSums(rna_EA >= 20) >= 4
+rna_counts_filtrado <- rna_EA[rna_filtered_EA, ]
+
+# 4. Criar objeto DESeq2
+dds_EA <- DESeqDataSetFromMatrix(countData = rna_counts_filtrado,
+                                 colData = EA_meta,
+                                 design = ~ vital_status)
+
+# 5. Transformar caracteres em fatores (se necessário)
+dds_EA$vital_status <- factor(dds_EA$vital_status)
+
+# 6. Executar DESeq2
+dds_EA <- DESeq(dds_EA)
+
+# 7. Resultados: comparar Dead vs Alive (Dead - referência por padrão)
+res_EA <- results(dds_EA, contrast = c("vital_status", "Dead", "Alive"))
+
+# 8. Ver resumo e visualizar top genes
+summary(res_EA)
+
+```
+Foram considerados diferencialmente expressos os genes que apresentaram um valor de padj < 0,1 (ajustado para múltiplos testes) e um valor absoluto de log₂FoldChange superior a 1, correspondendo a alterações de expressão com relevância estatística e biológica.
+
+Com base nestes critérios, a análise identificou um total de 27326 genes diferencialmente expressos entre pacientes vivos e falecidos no subtipo Endometrioid adenocarcinoma (EA). Dentre estes, 2781 genes apresentaram regulação positiva (ou seja, foram sobre-expressos nos pacientes falecidos), enquanto 1550 genes evidenciaram regulação negativa (ou seja, foram sub-expressos nos mesmos).
+
+A maior quantidade de genes sobre-expressos (2.781 genes) nos pacientes falecidos pode refletir a ativação de vias biológicas que favorecem a agressividade tumoral, como proliferação celular, resistência à apoptose e evasão da resposta imune. Por outro lado, os 1.550 genes sub-expressos podem indicar a inibição de processos celulares importantes, como reparo de DNA, diferenciação celular ou resposta imunológica, que poderiam contribuir para a piora do prognóstico e a falência terapêutica nos pacientes que não sobreviveram.
+
+```{r, echo=FALSE}
+
+#plotar gráfico de DE
+DESeq2::plotMA(res_EA, main="DESeq2", ylim=c(-6,6))
+```
+
+```{r, echo=FALSE}
+res_df <- as.data.frame(res_EA) 
+res_df$gene <- rownames(res_EA)
+res_df$significant <- ifelse(res_df$padj < 0.1 & abs(res_df$log2FoldChange) > 1, "Significativo", "Não significativo")
+
+
+# Transformar o objeto de resultados em um data frame
+res_df_EA <- as.data.frame(res_EA)
+res_df_EA$gene <- rownames(res_df_EA)
+
+# Criar a coluna 'regulation' com base em critérios de significância
+res_df_EA <- res_df %>%
+  mutate(regulation = case_when(
+    padj < 0.1 & log2FoldChange > 1 ~ "Up",
+    padj < 0.1 & log2FoldChange < -1 ~ "Down",
+    TRUE ~ "Not Sig"
+  ))
+
+```
+
+
+
+###Serous cystadenocarcinoma (SC)
+
+```{r, message=FALSE, warning=FALSE}
+#vital_status x SC 
+
+# 1. Filtrar metadados: apenas Serous cystadenocarcinoma, NOS e sem NAs
+SC_meta <- metadata_subset %>%
+  filter(primary_diagnosis == "Serous cystadenocarcinoma, NOS" & !is.na(vital_status))
+
+# 2. Garantir que os nomes das colunas em contagens correspondem às amostras
+rna_SC <- rna_counts[, rownames(SC_meta)]
+
+# 3. Filtrar genes: manter genes com contagem ≥ 20 em pelo menos 4 amostras
+rna_filtered_SC <- rowSums(rna_SC >= 20) >= 4
+rna_counts_filtrado_SC <- rna_SC[rna_filtered_SC, ]
+
+# 4. Criar objeto DESeq2
+dds_SC <- DESeqDataSetFromMatrix(countData = rna_counts_filtrado_SC,
+                                 colData = SC_meta,
+                                 design = ~ vital_status)
+
+# 5. Transformar caracteres em fatores (se necessário)
+dds_SC$vital_status <- factor(dds_SC$vital_status)
+
+# 6. Executar DESeq2
+dds_SC <- DESeq(dds_SC)
+
+# 7. Resultados: comparar Dead vs Alive (Dead - referência por padrão)
+res_SC <- results(dds_SC, contrast = c("vital_status", "Dead", "Alive"))
+
+# 8. Ver resumo e visualizar top genes
+summary(res_SC)
+
+
+```
+Da mesma forma que foi realizado no subtipo Endometrioid adenocarcinoma (EA), também foi aplicado um filtro adicional nos dados de contagem gênica para o subtipo Serous cystadenocarcinoma (SC), com o objetivo de garantir maior robustez estatística na análise de expressão diferencial. A análise de expressão diferencial para SC revelou que, dos genes filtrados, 224 genes apresentaram regulação positiva (ou seja, foram sobre-expressos nos pacientes falecidos), enquanto 393 genes apresentaram regulação negativa (ou seja, foram sub-expressos nos mesmos).
+
+A identificação de uma maior quantidade de genes sub-expressos nos pacientes falecidos pode refletir a inibição de processos celulares importantes, como a resposta imune e mecanismos de reparação celular, enquanto os genes sobre-expressos podem estar associados a processos que favorecem a progressão e a agressividade do tumor. Esses padrões transcriptômicos podem fornecer pistas sobre mecanismos moleculares subjacentes ao comportamento clínico do câncer de endométrio, especialmente no subgrupo de pacientes com Serous cystadenocarcinoma, o que pode ser útil para futuras estratégias terapêuticas, além de contribuir para uma melhor compreensão das características moleculares deste subtipo tumoral.
+
+```{r, echo=FALSE}
+
+#plotar gráfico de DE
+DESeq2::plotMA(res_SC, main="DESeq2", ylim=c(-6,6))
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+res_df_SC <- as.data.frame(res_SC) 
+res_df_SC$gene <- rownames(res_SC)
+res_df_SC$significant <- ifelse(res_df_SC$padj < 0.1 & abs(res_df_SC$log2FoldChange) > 1, "Significativo", "Não significativo")
+
+
+#Visualizar expressão dos top20 genes em vital_status vs SC 
+# Transformar o objeto de resultados em um data frame
+res_df_SC <- as.data.frame(res_SC)
+res_df_SC$gene <- rownames(res_df_SC)
+
+# Criar a coluna 'regulation' com base em critérios de significância
+res_df_SC <- res_df_SC %>%
+  mutate(regulation = case_when(
+    padj < 0.1 & log2FoldChange > 1 ~ "Up",
+    padj < 0.1 & log2FoldChange < -1 ~ "Down",
+    TRUE ~ "Not Sig"
+  ))
+
+```
+
+
+### Análise de enriquecimento
+Com o objetivo de interpretar funcionalmente os genes diferencialmente expressos entre pacientes vivos e mortos, foi realizada uma análise de enriquecimento baseada na ontologia Gene Ontology – Biological Process (GO:BP). O primeiro passo consistiu na filtragem dos genes significativamente expressos, selecionando apenas aqueles com valor de padj inferior a 0.05 e variação absoluta de expressão (|log2FoldChange|) superior a 1, de forma a garantir a relevância biológica dos genes incluídos. Em seguida, os identificadores genéticos em formato ENSEMBL foram convertidos para ENTREZ IDs, conforme requerido pelas ferramentas de enriquecimento funcional. Esta conversão foi realizada com recurso à base de dados org.Hs.eg.db, tendo sido removidos os genes que não puderam ser mapeados. Posteriormente, foi aplicada a função enrichGO() do pacote clusterProfiler para identificar os termos de processos biológicos sobre-representados entre os genes selecionados.
+```{r, message=FALSE, warning=FALSE}
+
+##Enrequicimento
+
+#Análise de Enriquecimento Funcional para EA
+
+# Filtrar genes significativos (p < 0.05 e |log2FC| > 1)
+EA_genes_sig <- res_df_EA %>% filter(padj < 0.05 & abs(log2FoldChange) > 1)
+EA_genes_ids <- sub("\\..*", "", EA_genes_sig$gene)
+
+# Converter ENSEMBL para ENTREZ ID
+EA_entrez_ids <- mapIds(org.Hs.eg.db,
+                        keys = EA_genes_ids,
+                        column = "ENTREZID",
+                        keytype = "ENSEMBL",
+                        multiVals = "first")
+
+# Remover NAs
+EA_entrez_ids <- na.omit(EA_entrez_ids)
+
+# Enriquecimento GO - Biological Process
+EA_GO_enrich <- enrichGO(gene = EA_entrez_ids,
+                         OrgDb = org.Hs.eg.db,
+                         keyType = "ENTREZID",
+                         ont = "BP",
+                         pAdjustMethod = "BH",
+                         qvalueCutoff = 0.05,
+                         readable = TRUE)
+
+```
+```{r, echo=FALSE}
+#Guardar EA
+EA_go_df <- as.data.frame(EA_GO_enrich)
+write.csv(EA_go_df, file = "GO_enrichment_EA.csv", row.names = FALSE)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Tabela EA
+
+# 1. Limpar os ENSEMBL IDs do res_df_EA
+res_df_EA$ensembl_clean <- sub("\\..*", "", res_df_EA$gene)
+
+# 2. Mapear ENSEMBL → símbolo de gene (SYMBOL)
+res_df_EA$symbol <- mapIds(org.Hs.eg.db,
+                           keys = res_df_EA$ensembl_clean,
+                           column = "SYMBOL",
+                           keytype = "ENSEMBL",
+                           multiVals = "first")
+
+# 3. Separar os geneIDs de cada termo GO (enrichGO EA)
+EA_GO_df_split <- as.data.frame(EA_GO_enrich) %>%
+  filter(p.adjust < 0.05) %>%
+  separate_rows(geneID, sep = "/") %>%
+  dplyr::rename(symbol = geneID)
+
+# 4. Juntar os símbolos com os log2FoldChange
+EA_GO_merged <- EA_GO_df_split %>%
+  left_join(res_df_EA, by = "symbol")
+
+# 5. Calcular a média e o desvio padrão de log2FC por termo GO
+EA_GO_summary <- EA_GO_merged %>%
+  group_by(ID, Description) %>%
+  summarise(
+    mean_log2FC = mean(log2FoldChange, na.rm = TRUE),
+    sd_log2FC = sd(log2FoldChange, na.rm = TRUE),
+    Count = n(),
+    p.adjust = first(p.adjust)
+  ) %>%
+  arrange(desc(abs(mean_log2FC)))  # ordenar pela magnitude (positivo ou negativo)
+
+print(head(EA_GO_summary[order(-EA_GO_summary$Count), ], 5))
+
+
+barplot(EA_GO_enrich, showCategory = 15, title = "GO BP - EA") +
+  scale_fill_gradient(low = "lightcoral", high = "lightgreen") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.y = element_text(size = 7),
+    axis.title.x = element_text(size = 12),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  )
+
+```
+
+A anotação funcional dos genes diferencialmente expressos no subtipo Endometrioid adenocarcinoma (EA) foi realizada com base na ontologia Gene Ontology – Biological Process (GO:BP), com o objetivo de identificar processos biológicos enriquecidos que possam estar associados ao estado vital dos pacientes. Foram considerados termos com valor de q inferior a 0.05, garantindo robustez estatística à interpretação funcional.
+A análise revelou um conjunto consistente de processos imunitários e celulares significativamente representados entre os genes diferencialmente expressos. Os termos mais relevantes incluem:
+
+  -Resposta imune humoral (GO:0006959), relacionada com a produção de anticorpos mediados por linfócitos B;
+  -Citotoxicidade celular (GO:0031640), que envolve a capacidade das células do sistema imune, como linfócitos T e células NK, destruírem células-alvo;
+  -Atividade antimicrobiana (GO:0061844), associada à expressão de genes com propriedades defensivas contra patógenos;
+  -Adesão célula-célula (GO:0098609), um processo fundamental para a manutenção da arquitetura tecidular e inibição da invasão tumoral;
+  -Regulação do potencial de membrana (GO:0042391), implicada na excitabilidade celular e nos mecanismos de sinalização intercelular.
+
+A análise da expressão génica nos genes que compõem estes termos revelou que a maioria se encontra sobre-expressa em pacientes falecidos. Este padrão sugere que os indivíduos com pior prognóstico apresentam uma ativação aumentada de vias imunitárias e inflamatórias, o que pode refletir uma resposta imune exacerbada ou disfuncional associada ao microambiente tumoral. Adicionalmente, a expressão alterada de genes ligados à adesão celular e à regulação do potencial de membrana pode indicar desorganização tecidular e alterações na comunicação intercelular, fatores frequentemente relacionados com maior agressividade tumoral e capacidade de metastização.
+
+Em conjunto, os resultados apontam para a existência de alterações moleculares sistemáticas nos pacientes falecidos com subtipo EA, envolvendo componentes chave do sistema imune, da homeostase celular e da integridade estrutural dos tecidos. Estes processos, quando desregulados, podem contribuir para a progressão tumoral, evasão imune e, consequentemente, para um pior desfecho clínico.
+
+
+```{r, message=FALSE, warning=FALSE}
+#Enriquecimento para SC
+
+SC_genes_sig <- res_df_SC %>% filter(padj < 0.05 & abs(log2FoldChange) > 1)
+SC_genes_ids <- sub("\\..*", "", SC_genes_sig$gene)
+
+SC_entrez_ids <- mapIds(org.Hs.eg.db,
+                        keys = SC_genes_ids,
+                        column = "ENTREZID",
+                        keytype = "ENSEMBL",
+                        multiVals = "first")
+
+SC_entrez_ids <- na.omit(SC_entrez_ids)
+
+SC_GO_enrich <- enrichGO(gene = SC_entrez_ids,
+                         OrgDb = org.Hs.eg.db,
+                         keyType = "ENTREZID",
+                         ont = "BP",
+                         pAdjustMethod = "BH",
+                         qvalueCutoff = 0.05,
+                         readable = TRUE)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Guardar em CSV
+SC_go_df <- as.data.frame(SC_GO_enrich)
+write.csv(SC_go_df, file = "GO_enrichment_SC.csv", row.names = FALSE)
+
+
+# Tabela SC
+
+# 1. Limpar IDs ENSEMBL no res_df_SC
+res_df_SC$ensembl_clean <- sub("\\..*", "", res_df_SC$gene)
+
+# 2. Mapear ENSEMBL → SYMBOL
+res_df_SC$symbol <- mapIds(org.Hs.eg.db,
+                           keys = res_df_SC$ensembl_clean,
+                           column = "SYMBOL",
+                           keytype = "ENSEMBL",
+                           multiVals = "first")
+
+# 3. Separar os genes em cada termo GO
+SC_GO_df_split <- as.data.frame(SC_GO_enrich) %>%
+  filter(p.adjust < 0.05) %>%
+  separate_rows(geneID, sep = "/") %>%
+  dplyr::rename(symbol = geneID)
+
+# 4. Juntar com log2FoldChange dos genes
+SC_GO_merged <- SC_GO_df_split %>%
+  left_join(res_df_SC, by = "symbol")
+
+# 5. Calcular a média do log2FoldChange por termo GO
+SC_GO_summary <- SC_GO_merged %>%
+  group_by(ID, Description) %>%
+  summarise(
+    mean_log2FC = mean(log2FoldChange, na.rm = TRUE),
+    sd_log2FC = sd(log2FoldChange, na.rm = TRUE),
+    Count = n(),
+    p.adjust = first(p.adjust)
+  ) %>%
+  arrange(desc(abs(mean_log2FC)))  # ordenar pela magnitude da média
+
+print(head(SC_GO_summary[order(-SC_GO_summary$Count), ], 5))
+
+barplot(SC_GO_enrich, showCategory = 15, title = "GO BP - SC") +
+  scale_fill_gradient(low = "lightcoral", high = "lightgreen") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.y = element_text(size = 7),
+    axis.title.x = element_text(size = 12),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9)
+  )
+
+```
+
+Para o subtipo Serous cystadenocarcinoma (SC), foi igualmente realizada uma análise de enriquecimento funcional com base em termos da ontologia GO – Biological Process, considerando os genes diferencialmente expressos entre pacientes vivos e mortos (critério: padj < 0.05 e |log2FoldChange| > 1). A análise permitiu identificar múltiplos processos biológicos significativamente enriquecidos, refletindo alterações moleculares específicas associadas ao estado vital neste subtipo mais agressivo de cancro endometrial.
+Entre os principais processos destacam-se:
+
+  -Organização dos nucleossomas (GO:0034728) e montagem de nucleossomas (GO:0006334), processos diretamente relacionados com a estrutura da cromatina e regulação epigenética da transcrição;
+  -Resposta imune humoral (GO:0006959) e resposta imune da mucosa (GO:0002227), refletindo o envolvimento do sistema imune na interface epitelial;
+  -Regulação da proliferação de linfócitos B (GO:0030890), indicando possível desregulação de subpopulações imunitárias específicas;
+  -Resposta inflamatória associada à imunidade inata (ex.: ativação de células NK, GO:0030101), que pode influenciar tanto a progressão tumoral como a resistência ao tratamento.
+
+Notavelmente, os processos mais significativamente enriquecidos envolvem alterações na arquitetura da cromatina, como a montagem e remodelação de nucleossomas, sugerindo que alterações epigenéticas desempenham um papel central na regulação da expressão génica neste subtipo. Estes resultados estão em consonância com a natureza altamente agressiva do Serous cystadenocarcinoma, frequentemente associada a instabilidade genómica e alterações epigenéticas profundas.
+
+Além disso, a presença de vários termos imunitários enriquecidos reforça a ideia de que o microambiente tumoral imune pode desempenhar um papel importante na evolução da doença. A desregulação de genes associados à imunidade humoral e à resposta mucosa pode refletir uma ativação compensatória do sistema imune ou, inversamente, uma evasão imune por parte das células tumorais.
+
+
+## Referências Bibliográficas
+
+1.	Tomczak, K., Czerwińska, P. & Wiznerowicz, M. The Cancer Genome Atlas (TCGA): An immeasurable source of knowledge. Wspolczesna Onkologia vol. 1A A68–A77 Preprint at https://doi.org/10.5114/wo.2014.47136 (2015).
+2.	Liu, J. et al. An Integrated TCGA Pan-Cancer Clinical Data Resource to Drive High-Quality Survival Outcome Analytics. Cell 173, 400-416.e11 (2018).
+3.	Abu-Rustum, N. et al. Uterine Neoplasms, Version 1.2023. JNCCN Journal of the National Comprehensive Cancer Network 21, 181–209 (2023).
+4.	Bray, F. et al. Global cancer statistics 2022: GLOBOCAN estimates of incidence and mortality worldwide for 36 cancers in 185 countries. CA Cancer J Clin 74, 229–263 (2024).
+5.	Gullo, G. et al. Fertility-Sparing Strategies for Early-Stage Endometrial Cancer: Stepping towards Precision Medicine Based on the Molecular Fingerprint. International Journal of Molecular Sciences vol. 24 Preprint at https://doi.org/10.3390/ijms24010811 (2023).
+6.	Aimagambetova, G. et al. Contemporary Fertility-Sparing Management Options of Early Stage Endometrioid Endometrial Cancer in Young Nulliparous Patients. J Clin Med 11, (2021).
+
+
