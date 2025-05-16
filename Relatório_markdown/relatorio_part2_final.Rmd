@@ -1134,7 +1134,7 @@ O presente estudo teve como finalidade a caracterização do perfil transcriptó
 
 Entre as variáveis analisadas, a categoria primary_diagnosis revelou-se particularmente relevante, distinguindo essencialmente dois subtipos histológicos majoritários: **Endometrioid adenocarcinoma (EC) e Serous cystadenocarcinoma (SC)**. Esta distinção serviu de base para as nossas análises, permitindo a identificação de genes diferencialmente expressos com potencial valor biológico e clínico.
 
-Neste contexto, foram selecionados dois genes para exploração aprofundada: **GHRH**, sobrexpresso nos casos de EC, e **MAGEB2**, predominantemente expresso nos casos de SC.
+Neste contexto, foram selecionados dois genes para exploração aprofundada: **GHRH**, sobrexpresso nos casos de EC, e **MAGEB2**, que se encontra subexpresso nos casos de SC.
 
 ### GHRH – Implicações no Endometrioid adenocarcinoma
 
